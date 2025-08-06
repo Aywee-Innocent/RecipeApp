@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ingredient Recipe Generator (Using TheMealDB API)</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      background: #f9f9f9;
+      color: #333;
+    }
+    h1 {
+      text-align: center;
+      color: #2c3e50;
+    }
+    label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: bold;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 0.6rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      margin-bottom: 1rem;
+      font-size: 1rem;
+    }
+    button {
+      background-color: #2ecc71;
+      border: none;
+      color: white;
+      padding: 0.6rem 1.2rem;
+      font-size: 1rem;
+      border-radius: 4px;
+      cursor: pointer;
+      display: block;
+      margin: 0 auto 2rem auto;
+      transition: background-color 0.3s ease;
+    }
+    button:hover {
+      background-color: #27ae60;
+    }
+    .recipe {
+      background: white;
+      padding: 1rem;
+      border-radius: 6px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      margin-bottom: 1rem;
+    }
+    .recipe h3 {
+      margin-top: 0;
+      color: #2980b9;
+    }
+    .recipe ul {
+      padding-left: 1.2rem;
+    }
+    .no-results {
+      text-align: center;
+      font-style: italic;
+      color: #999;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Ingredient Recipe Generator</h1>
+  <label for="ingredients-input">Enter ingredients (comma separated):</label>
+  <input type="text" id="ingredients-input" placeholder="e.g., chicken, tomato, garlic" />
+  <button id="generate-btn">Generate Recipes</button>
+
+  <div id="recipes-container"></div>
+
+  <script>
+    const input = document.getElementById('ingredients-input');
+    const generateBtn = document.getElementById('generate-btn');
+    const recipesContainer = document.getElementById('recipes-container');
+
+    // TheMealDB API base URL
+    const API_BASE = 'https://www.themealdb.com/api/json/v1/1';
+
+    // Fetch recipes by single ingredient from TheMealDB
+    async function fetchMealsByIngredient(ingredient) {
+      try {
+        const res = await fetch(`${API_BASE}/filter.php?i=${encodeURIComponent(ingredient)}`);
+        const data = await res.json();
+        return data.meals || [];
+      } catch (error) {
+        console.error('Error fetching meals:', error);
+        return [];
+      }
+    }
+
+    // Fetch full meal details by meal ID
+    async function fetchMealDetails(mealID) {
+      try {
+        const res = await fetch(`${API_BASE}/lookup.php?i=${mealID}`);
+        const data = await res.json();
+        return data.meals ? data.meals[0] : null;
+      } catch (error) {
+        console.error('Error fetching meal details:', error);
+        return null;
+      }
+    }
+
+    async function generateRecipes() {
+      const inputText = input.value.trim().toLowerCase();
+      recipesContainer.innerHTML = ''; // Clear previous results
+
+      if (!inputText) {
+        recipesContainer.innerHTML = '<p class="no-results">Please enter at least one ingredient.</p>';
+        return;
+      }
+
+      // Parse and clean input ingredients
+      const inputIngredients = inputText.split(',')
+        .map(i => i.trim())
+        .filter(i => i.length > 0);
+
+      if (inputIngredients.length === 0) {
+        recipesContainer.innerHTML = '<p class="no-results">Please enter valid ingredients.</p>';
+        return;
+      }
+
+      // For each input ingredient, get meal lists
+      let mealsPerIngredient = await Promise.all(
+        inputIngredients.map(ing => fetchMealsByIngredient(ing))
+      );
+
+      // Find the intersection of meals that contain all ingredients
+      // We'll compare by meal idMeal
+      let commonMealIds = null;
+      for (const meals of mealsPerIngredient) {
+        const mealIds = meals.map(m => m.idMeal);
+        if (commonMealIds === null) {
+          commonMealIds = new Set(mealIds);
+        } else {
+          commonMealIds = new Set(mealIds.filter(id => commonMealIds.has(id)));
+        }
+      }
+
+      if (!commonMealIds || commonMealIds.size === 0) {
+        recipesContainer.innerHTML = '<p class="no-results">No recipes found with all those ingredients.</p>';
+        return;
+      }
+
+      // Fetch full details for each common meal id
+      const mealDetailsList = await Promise.all(
+        Array.from(commonMealIds).map(id => fetchMealDetails(id))
+      );
+
+      // Display recipes
+      recipesContainer.innerHTML = mealDetailsList.map(meal => {
+        if (!meal) return '';
+        // Collect ingredients + measures
+        const ingredientsList = [];
+        for (let i = 1; i <= 20; i++) {
+          let ingredient = meal[`strIngredient${i}`];
+          let measure = meal[`strMeasure${i}`];
+          if (ingredient && ingredient.trim() !== '') {
+            ingredientsList.push(`${measure ? measure.trim() : ''} ${ingredient.trim()}`.trim());
+          }
+        }
+
+        return `
+          <div class="recipe">
+            <h3>${meal.strMeal}</h3>
+            <strong>Ingredients:</strong>
+            <ul>
+              ${ingredientsList.map(i => `<li>${i}</li>`).join('')}
+            </ul>
+            <strong>Instructions:</strong>
+            <p>${meal.strInstructions}</p>
+            ${meal.strMealThumb ? `<img src="${meal.strMealThumb}" alt="${meal.strMeal}" style="max-width: 100%; border-radius: 6px; margin-top: 10px;">` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    generateBtn.addEventListener('click', generateRecipes);
+  </script>
+</body>
+</html>
